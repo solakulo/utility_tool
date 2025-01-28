@@ -16,7 +16,7 @@ def load_config():
 def read_logs(year):
     log_file = os.path.join(LOG_DIR, f"{year}.log")
     if not os.path.exists(log_file):
-        raise FileNotFoundError(f"日志文件 {log_file} 不存在！")
+        return []  # 如果日志文件不存在，返回空列表
 
     logs = []
     with open(log_file, "r", encoding="utf-8") as f:
@@ -27,7 +27,29 @@ def read_logs(year):
                 logs.append(
                     {"date": date, "first_time": first_time, "last_time": last_time}
                 )
+
+    # 按日期升序排序
+    logs.sort(key=lambda x: x["date"])
     return logs
+
+
+def append_to_logs(new_logs, year):
+    log_file = os.path.join(LOG_DIR, f"{year}.log")
+
+    # 读取现有日志
+    existing_logs = read_logs(year)
+    existing_dates = {log["date"] for log in existing_logs}
+
+    # 过滤新增日志
+    filtered_logs = [log for log in new_logs if log["date"] not in existing_dates]
+
+    # 如果有新增内容，追加到文件
+    if filtered_logs:
+        with open(log_file, "a", encoding="utf-8") as f:
+            for log in filtered_logs:
+                f.write(f"{log['date']}, {log['first_time']}, {log['last_time']}\n")
+
+    return existing_logs + filtered_logs
 
 
 def calculate_rest_duration(work_start, work_end, rest_periods):
@@ -83,39 +105,52 @@ def calculate_work_hours(log, config):
 
 def save_to_excel(logs, config, year):
     output_file = f"system_logs_{year}.xlsx"
-    wb = openpyxl.Workbook()
-    default_sheet = wb.active
-    wb.remove(default_sheet)
 
+    # 加载或创建工作簿
+    if os.path.exists(output_file):
+        wb = openpyxl.load_workbook(output_file)
+    else:
+        wb = openpyxl.Workbook()
+        default_sheet = wb.active
+        wb.remove(default_sheet)
+
+    # 按月份创建或选择工作表
     for month in range(1, 13):
-        ws = wb.create_sheet(title=f"{month:02}")
-        ws.append(
-            [
-                "日期",
-                "最早开机时间",
-                "最晚关机时间",
-                "包含休息上班时长",
-                "去除休息上班时长",
-                "加班时长",
-            ]
-        )
+        sheet_name = f"{month:02}"
+        if sheet_name not in wb.sheetnames:
+            ws = wb.create_sheet(title=sheet_name)
+            ws.append(
+                [
+                    "日期",
+                    "最早开机时间",
+                    "最晚关机时间",
+                    "包含休息上班时长",
+                    "去除休息上班时长",
+                    "加班时长",
+                ]
+            )
+        else:
+            ws = wb[sheet_name]
 
-    for log in logs:
-        date = log["date"]
-        month = int(date.split("-")[1])
-        ws = wb[f"{month:02}"]
+        # 获取已有数据的日期
+        existing_dates = {
+            row[0].value for row in ws.iter_rows(min_row=2) if row[0].value
+        }
 
-        total, effective, overtime = calculate_work_hours(log, config)
-        ws.append(
-            [
-                date,
-                log["first_time"],
-                log["last_time"],
-                str(total),
-                str(effective),
-                str(overtime),
-            ]
-        )
+        # 写入新增日志数据
+        for log in sorted(logs, key=lambda x: x["date"]):  # 按日期升序排序
+            if log["date"] not in existing_dates:
+                total, effective, overtime = calculate_work_hours(log, config)
+                ws.append(
+                    [
+                        log["date"],
+                        log["first_time"],
+                        log["last_time"],
+                        str(total),
+                        str(effective),
+                        str(overtime),
+                    ]
+                )
 
     wb.save(output_file)
     print(f"生成的图表已保存到 {output_file}")
@@ -124,5 +159,6 @@ def save_to_excel(logs, config, year):
 if __name__ == "__main__":
     year = sys.argv[1]
     config = load_config()
-    logs = read_logs(year)
-    save_to_excel(logs, config, year)
+    new_logs = read_logs(year)
+    updated_logs = append_to_logs(new_logs, year)
+    save_to_excel(updated_logs, config, year)
