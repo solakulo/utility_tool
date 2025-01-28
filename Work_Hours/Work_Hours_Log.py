@@ -54,13 +54,38 @@ def save_logs(daily_logs):
         if year not in yearly_logs:
             yearly_logs[year] = []
         yearly_logs[year].append(
-            f"{date}, {times['first'] or '无记录'}, {times['last'] or '无记录'}"
+            {
+                "date": date,
+                "first_time": times["first"] or "无记录",
+                "last_time": times["last"] or "无记录",
+            }
         )
 
     for year, logs in yearly_logs.items():
         log_file = os.path.join(LOG_DIR, f"{year}.log")
+
+        # 如果日志文件存在，读取旧内容
+        if os.path.exists(log_file):
+            with open(log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split(", ")
+                    if len(parts) == 3:
+                        date, first_time, last_time = parts
+                        logs.append(
+                            {
+                                "date": date,
+                                "first_time": first_time,
+                                "last_time": last_time,
+                            }
+                        )
+
+        # 按日期升序排序
+        logs.sort(key=lambda x: x["date"])
+
+        # 写入到文件
         with open(log_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(logs))
+            for log in logs:
+                f.write(f"{log['date']}, {log['first_time']}, {log['last_time']}\n")
         print(f"日志已保存到 {log_file}")
 
 
